@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Alpha Dragon: Black Hole Resonance Explorer</title>
+  <style>
+    body {
+      margin: 0;
+      background: black;
+      overflow: hidden;
+      font-family: monospace;
+      color: white;
+    }
+    canvas { display: block; }
+    .ui-stack {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      pointer-events: none;
+      z-index: 10;
+    }
+    .panel {
+      width: 280px;
+      padding: 10px 12px;
+      background: rgba(0, 0, 0, 0.68);
+      border: 1px solid rgba(255,255,255,0.45);
+      box-shadow: 0 0 18px rgba(255,255,255,0.08);
+      backdrop-filter: blur(3px);
+    }
+    .panel h3 {
+      margin: 0 0 8px 0;
+      font-size: 14px;
+      color: #d9f4ff;
+      letter-spacing: 0.05em;
+    }
+    .panel .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 3px 0;
+      font-size: 12px;
+    }
+    .panel .muted {
+      color: #c9c9c9;
+    }
+    #pulseLog {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      width: 360px;
+      max-height: 86vh;
+      overflow-y: auto;
+      padding: 10px 12px;
+      background: rgba(0, 0, 0, 0.68);
+      border: 1px solid rgba(255,255,255,0.45);
+      box-shadow: 0 0 18px rgba(255,255,255,0.08);
+      font-size: 12px;
+      line-height: 1.35;
+      z-index: 10;
+    }
+    #pulseLog h3 {
+      margin: 0 0 8px 0;
+      font-size: 14px;
+      color: #ffd7f6;
+      letter-spacing: 0.05em;
+    }
+    #pulseLog .entry {
+      margin: 4px 0;
+      color: #ededed;
+    }
+    #pulseLog .entry.pulse {
+      color: #fff6a5;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="simulationCanvas"></canvas>
+
+  <div id="pulseLog">
+    <h3>Pulse / Event Log</h3>
+  </div>
+
+  <div class="ui-stack">
+    <div class="panel" id="hudPanel">
+      <h3>Black Hole Resonance HUD</h3>
+      <div class="row"><span class="muted">Status</span><span id="hudStatus">Running</span></div>
+      <div class="row"><span class="muted">Mode</span><span id="hudMode">Resonant</span></div>
+      <div class="row"><span class="muted">Particles</span><span id="hudParticles">0</span></div>
+      <div class="row"><span class="muted">Time</span><span id="hudTime">0.00</span></div>
+      <div class="row"><span class="muted">Pull</span><span id="hudPull">0.0000</span></div>
+      <div class="row"><span class="muted">Oscillation</span><span id="hudOsc">0.00</span></div>
+      <div class="row"><span class="muted">Noise</span><span id="hudNoise">0.0000</span></div>
+      <div class="row"><span class="muted">Trails</span><span id="hudTrails">On</span></div>
+      <div class="row"><span class="muted">Center Density</span><span id="hudDensity">0</span></div>
+      <div class="row"><span class="muted">Pulse Intensity</span><span id="hudPulse">0.000</span></div>
+      <div class="row"><span class="muted">Avg Speed</span><span id="hudSpeed">0.00</span></div>
+    </div>
+
+    <div class="panel">
+      <h3>Controls</h3>
+      <div class="row"><span>Click / Drag</span><span>Move center</span></div>
+      <div class="row"><span>SPACE</span><span>Pause / Resume</span></div>
+      <div class="row"><span>R</span><span>Reset</span></div>
+      <div class="row"><span>M</span><span>Mode switch</span></div>
+      <div class="row"><span>T</span><span>Trails toggle</span></div>
+      <div class="row"><span>↑ / ↓</span><span>Pull ±</span></div>
+      <div class="row"><span>← / →</span><span>Oscillation ±</span></div>
+      <div class="row"><span>N / B</span><span>Noise ±</span></div>
+      <div class="row"><span>P / O</span><span>Particles ±</span></div>
+    </div>
+  </div>
+
+  <script>
+    // ==========================================================
+    // ALPHA DRAGON: BLACK HOLE RESONANCE EXPLORER
+    // ----------------------------------------------------------
+    // This build explores resonant shell formation during collapse.
+    //
+    // SYSTEM FLOW:
+    // 1. Particles are seeded across a circular field
+    // 2. A central attractor pulls them inward
+    // 3. Oscillation and noise create shell-like bands and pulses
+    // 4. Moving the center lets you watch the field reorganize live
+    //
+    // "Energy shells" here refer to visually emergent density layers.
+    // ==========================================================
+
+    const CONFIG = {
+      INITIAL_PARTICLES: 18000,
+      MAX_PARTICLES: 80000,
+      MIN_PARTICLES: 1000,
+      BASE_PULL_STRENGTH: 0.0022,
+      OSCILLATION_SCALE: 11,
+      NOISE_LEVEL: 0.010,
+      MAX_SPEED: 7.5,
+      TRAILS_ALPHA: 0.12,
+      CENTER_SAMPLE_RADIUS: 85,
+      PULSE_THRESHOLD: 45,
+      MAX_LOG_ENTRIES: 90
+    };
+
+    const MODES = [
+      {
+        name: "Stable Collapse",
+        pullMultiplier: 1.25,
+        oscillationMultiplier: 0.45,
+        noiseMultiplier: 0.35,
+        trailAlpha: 0.09
+      },
+      {
+        name: "Resonant",
+        pullMultiplier: 1.0,
+        oscillationMultiplier: 1.0,
+        noiseMultiplier: 1.0,
+        trailAlpha: 0.12
+      },
+      {
+        name: "Chaotic",
+        pullMultiplier: 0.85,
+        oscillationMultiplier: 1.5,
+        noiseMultiplier: 1.8,
+        trailAlpha: 0.16
+      }
+    ];
+
+    const canvas = document.getElementById("simulationCanvas");
+    const ctx = canvas.getContext("2d");
+
+    const hudStatus = document.getElementById("hudStatus");
+    const hudMode = document.getElementById("hudMode");
+    const hudParticles = document.getElementById("hudParticles");
+    const hudTime = document.getElementById("hudTime");
+    const hudPull = document.getElementById("hudPull");
+    const hudOsc = document.getElementById("hudOsc");
+    const hudNoise = document.getElementById("hudNoise");
+    const hudTrails = document.getElementById("hudTrails");
+    const hudDensity = document.getElementById("hudDensity");
+    const hudPulse = document.getElementById("hudPulse");
+    const hudSpeed = document.getElementById("hudSpeed");
+    const pulseLog = document.getElementById("pulseLog");
+
+    let particles = [];
+    let time = 0;
+    let paused = false;
+    let trailsEnabled = true;
+    let modeIndex = 1;
+    let gravityCenter = { x: 0, y: 0 };
+    let draggingCenter = false;
+    let centerFlash = 0;
+    let resizeQueued = false;
+
+    let pullStrength = CONFIG.BASE_PULL_STRENGTH;
+    let oscillationScale = CONFIG.OSCILLATION_SCALE;
+    let noiseLevel = CONFIG.NOISE_LEVEL;
+
+    let lastCenterDensity = 0;
+    let pulseLogEntries = 0;
+    let lastPulseIntensity = 0;
+
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      if (!gravityCenter.x && !gravityCenter.y) {
+        gravityCenter.x = canvas.width / 2;
+        gravityCenter.y = canvas.height / 2;
+      }
+    }
+
+    function resetSimulation(logReset = true) {
+      particles = [];
+      time = 0;
+      centerFlash = 0;
+      lastCenterDensity = 0;
+      lastPulseIntensity = 0;
+      applyMode(false);
+      seedParticles(CONFIG.INITIAL_PARTICLES);
+      if (logReset) addLog("🔄 Simulation reset");
+      updateHUD(0, 0);
+    }
+
+    function seedParticles(numParticles) {
+      const maxRadius = Math.min(canvas.width, canvas.height) * 0.42;
+      const variationFactor = 1.25;
+      for (let i = 0; i < numParticles; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const radius = Math.pow(Math.random(), variationFactor) * maxRadius;
+        const x = gravityCenter.x + radius * Math.cos(angle);
+        const y = gravityCenter.y + radius * Math.sin(angle);
+
+        const tangentialSpeed = CONFIG.MAX_SPEED * (Math.random() * 2 - 1) * 0.55;
+        const vx = tangentialSpeed * Math.cos(angle + Math.PI / 2);
+        const vy = tangentialSpeed * Math.sin(angle + Math.PI / 2);
+
+        particles.push({
+          x, y, vx, vy,
+          size: Math.random() * 1.2 + 0.6,
+          hue: Math.random() * 360
+        });
+      }
+    }
+
+    function addParticles(count) {
+      const target = Math.min(CONFIG.MAX_PARTICLES, particles.length + count);
+      const toAdd = Math.max(0, target - particles.length);
+      if (toAdd > 0) {
+        seedParticles(toAdd);
+        addLog(`➕ Added ${toAdd.toLocaleString()} particles`);
+      }
+    }
+
+    function removeParticles(count) {
+      const target = Math.max(CONFIG.MIN_PARTICLES, particles.length - count);
+      const toRemove = Math.max(0, particles.length - target);
+      if (toRemove > 0) {
+        particles.splice(particles.length - toRemove, toRemove);
+        addLog(`➖ Removed ${toRemove.toLocaleString()} particles`);
+      }
+    }
+
+    function addLog(message, pulse = false) {
+      const entry = document.createElement("div");
+      entry.className = "entry" + (pulse ? " pulse" : "");
+      entry.textContent = message;
+      pulseLog.appendChild(entry);
+      pulseLog.scrollTop = pulseLog.scrollHeight;
+      pulseLogEntries += 1;
+
+      while (pulseLogEntries > CONFIG.MAX_LOG_ENTRIES) {
+        const firstEntry = pulseLog.querySelector(".entry");
+        if (!firstEntry) break;
+        pulseLog.removeChild(firstEntry);
+        pulseLogEntries -= 1;
+      }
+    }
+
+    function applyMode(announce = true) {
+      const mode = MODES[modeIndex];
+      pullStrength = CONFIG.BASE_PULL_STRENGTH * mode.pullMultiplier;
+      oscillationScale = CONFIG.OSCILLATION_SCALE * mode.oscillationMultiplier;
+      noiseLevel = CONFIG.NOISE_LEVEL * mode.noiseMultiplier;
+      if (announce) addLog(`🌀 Mode changed to ${mode.name}`);
+    }
+
+    function cycleMode() {
+      modeIndex = (modeIndex + 1) % MODES.length;
+      applyMode(true);
+    }
+
+    function detectPulse(centerDensity) {
+      const delta = Math.abs(centerDensity - lastCenterDensity);
+      if (delta > CONFIG.PULSE_THRESHOLD) {
+        const timestamp = new Date().toLocaleTimeString();
+        lastPulseIntensity = delta;
+        centerFlash = Math.min(1, centerFlash + Math.min(0.8, delta / 300));
+        addLog(`💥 Pulse detected @ ${timestamp} | intensity ${delta.toFixed(1)} | density ${centerDensity}`, true);
+        console.log(`Pulse detected at ${timestamp}, intensity: ${delta.toFixed(3)}`);
+      }
+      lastCenterDensity = centerDensity;
+    }
+
+    function getParticleColor(p, dist) {
+      const shellWave = 0.5 + 0.5 * Math.sin(dist / Math.max(oscillationScale, 0.01));
+      const lightness = 42 + shellWave * 30;
+      const hue = (p.hue + dist * 0.08 + time * 18) % 360;
+      return `hsl(${hue}, 100%, ${lightness}%)`;
+    }
+
+    function updateParticles() {
+      let centerDensity = 0;
+      let totalSpeed = 0;
+      const sampleRadius = CONFIG.CENTER_SAMPLE_RADIUS;
+      const mode = MODES[modeIndex];
+
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i];
+
+        const dx = p.x - gravityCenter.x;
+        const dy = p.y - gravityCenter.y;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 0.0001;
+
+        const pull = pullStrength * (1 + Math.sin(dist / Math.max(oscillationScale, 0.01)));
+        p.vx -= dx * pull;
+        p.vy -= dy * pull;
+
+        p.vx += (Math.random() - 0.5) * noiseLevel;
+        p.vy += (Math.random() - 0.5) * noiseLevel;
+
+        const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
+        if (speed > CONFIG.MAX_SPEED) {
+          const ratio = CONFIG.MAX_SPEED / speed;
+          p.vx *= ratio;
+          p.vy *= ratio;
+        }
+
+        p.x += p.vx;
+        p.y += p.vy;
+
+        // Soft containment so shells keep forming within view
+        if (p.x < -50 || p.x > canvas.width + 50 || p.y < -50 || p.y > canvas.height + 50) {
+          const angle = Math.random() * Math.PI * 2;
+          const respawnRadius = Math.min(canvas.width, canvas.height) * 0.35;
+          p.x = gravityCenter.x + Math.cos(angle) * respawnRadius;
+          p.y = gravityCenter.y + Math.sin(angle) * respawnRadius;
+          p.vx *= 0.35;
+          p.vy *= 0.35;
+        }
+
+        const newDx = p.x - gravityCenter.x;
+        const newDy = p.y - gravityCenter.y;
+        const newDist = Math.sqrt(newDx * newDx + newDy * newDy);
+
+        if (newDist < sampleRadius) centerDensity += 1;
+        totalSpeed += Math.sqrt(p.vx * p.vx + p.vy * p.vy);
+
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fillStyle = getParticleColor(p, newDist);
+        ctx.fill();
+      }
+
+      detectPulse(centerDensity);
+      updateHUD(centerDensity, totalSpeed / Math.max(1, particles.length));
+      drawCenterAnchor(mode);
+    }
+
+    function drawCenterAnchor(mode) {
+      const flashAlpha = Math.max(0, centerFlash);
+      centerFlash *= 0.93;
+
+      // core
+      ctx.beginPath();
+      ctx.arc(gravityCenter.x, gravityCenter.y, 5, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(255,255,255,0.95)";
+      ctx.shadowColor = "rgba(255,255,255,0.9)";
+      ctx.shadowBlur = 18 + flashAlpha * 35;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      // resonance rings
+      for (let i = 0; i < 3; i++) {
+        ctx.beginPath();
+        const baseRadius = 18 + i * 18 + flashAlpha * 6;
+        ctx.arc(gravityCenter.x, gravityCenter.y, baseRadius, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(255,255,255,${0.08 + flashAlpha * 0.22})`;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+
+      // sample radius guide
+      ctx.beginPath();
+      ctx.arc(gravityCenter.x, gravityCenter.y, CONFIG.CENTER_SAMPLE_RADIUS, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(180,220,255,0.10)";
+      ctx.setLineDash([6, 8]);
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    function renderFrame() {
+      if (trailsEnabled) {
+        const alpha = MODES[modeIndex].trailAlpha;
+        ctx.fillStyle = `rgba(0,0,0,${alpha})`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      } else {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+
+      updateParticles();
+    }
+
+    function updateHUD(centerDensity, avgSpeed) {
+      hudStatus.textContent = paused ? "Paused" : "Running";
+      hudMode.textContent = MODES[modeIndex].name;
+      hudParticles.textContent = particles.length.toLocaleString();
+      hudTime.textContent = time.toFixed(2);
+      hudPull.textContent = pullStrength.toFixed(4);
+      hudOsc.textContent = oscillationScale.toFixed(2);
+      hudNoise.textContent = noiseLevel.toFixed(4);
+      hudTrails.textContent = trailsEnabled ? "On" : "Off";
+      hudDensity.textContent = centerDensity.toLocaleString();
+      hudPulse.textContent = lastPulseIntensity.toFixed(3);
+      hudSpeed.textContent = avgSpeed.toFixed(2);
+    }
+
+    function animate() {
+      if (!paused) {
+        time += 0.0167;
+        renderFrame();
+      } else {
+        updateHUD(lastCenterDensity, 0);
+      }
+      requestAnimationFrame(animate);
+    }
+
+    function getPointerPosition(event) {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top
+      };
+    }
+
+    canvas.addEventListener("mousedown", (event) => {
+      draggingCenter = true;
+      const pos = getPointerPosition(event);
+      gravityCenter.x = pos.x;
+      gravityCenter.y = pos.y;
+      addLog(`🧲 Gravity center moved to (${Math.round(pos.x)}, ${Math.round(pos.y)})`);
+    });
+
+    window.addEventListener("mousemove", (event) => {
+      if (!draggingCenter) return;
+      const pos = getPointerPosition(event);
+      gravityCenter.x = pos.x;
+      gravityCenter.y = pos.y;
+    });
+
+    window.addEventListener("mouseup", () => {
+      draggingCenter = false;
+    });
+
+    window.addEventListener("resize", () => {
+      resizeQueued = true;
+    });
+
+    document.addEventListener("keydown", (event) => {
+      switch (event.key) {
+        case " ":
+          event.preventDefault();
+          paused = !paused;
+          addLog(paused ? "⏸️ Paused" : "▶️ Resumed");
+          break;
+        case "r":
+        case "R":
+          resetSimulation(true);
+          break;
+        case "m":
+        case "M":
+          cycleMode();
+          break;
+        case "t":
+        case "T":
+          trailsEnabled = !trailsEnabled;
+          addLog(`✨ Trails ${trailsEnabled ? "enabled" : "disabled"}`);
+          break;
+        case "ArrowUp":
+          pullStrength *= 1.1;
+          addLog(`⬆️ Pull increased to ${pullStrength.toFixed(4)}`);
+          break;
+        case "ArrowDown":
+          pullStrength *= 0.9;
+          addLog(`⬇️ Pull decreased to ${pullStrength.toFixed(4)}`);
+          break;
+        case "ArrowRight":
+          oscillationScale += 0.8;
+          addLog(`➡️ Oscillation increased to ${oscillationScale.toFixed(2)}`);
+          break;
+        case "ArrowLeft":
+          oscillationScale = Math.max(1, oscillationScale - 0.8);
+          addLog(`⬅️ Oscillation decreased to ${oscillationScale.toFixed(2)}`);
+          break;
+        case "n":
+        case "N":
+          noiseLevel += 0.0025;
+          addLog(`🌪️ Noise increased to ${noiseLevel.toFixed(4)}`);
+          break;
+        case "b":
+        case "B":
+          noiseLevel = Math.max(0, noiseLevel - 0.0025);
+          addLog(`🧘 Noise decreased to ${noiseLevel.toFixed(4)}`);
+          break;
+        case "p":
+        case "P":
+          addParticles(2000);
+          break;
+        case "o":
+        case "O":
+          removeParticles(2000);
+          break;
+      }
+    });
+
+    function tickResizeIfNeeded() {
+      if (resizeQueued) {
+        resizeCanvas();
+        resizeQueued = false;
+      }
+      requestAnimationFrame(tickResizeIfNeeded);
+    }
+
+    resizeCanvas();
+    applyMode(false);
+    resetSimulation(false);
+    addLog("🌌 Alpha Dragon: Black Hole Resonance Explorer ready");
+    addLog("💡 Drag the center and watch shell-like bands reorganize");
+    animate();
+    tickResizeIfNeeded();
+  </script>
+</body>
+</html>
